@@ -2,6 +2,7 @@ import torch
 import argparse
 import numpy as np
 import rasterio
+from pathlib import Path
 
 from ssr.utils.options import yaml_load
 from ssr.utils.model_utils import build_network
@@ -40,7 +41,7 @@ if __name__ == "__main__":
     geotiff_path = opt['input_geotiff_path']
     upscale_factor = opt['upscale_factor']
     n_lr_images = opt['n_lr_images']  # number of low-res images as input to the model; must be the same as when the model was trained
-    save_path = opt['save_path']  # directory where model outputs will be saved
+    save_path = Path(opt['save_path'])  # directory where model outputs will be saved
     tile_w = 32
     tile_h = 32
 
@@ -64,7 +65,7 @@ if __name__ == "__main__":
         orig_crs = dataset.crs
 
         # create an empty array to store the upscaled data
-        upscaled_data = np.zeros((dataset.count, int(dataset.height * upscale_factor), int(dataset.width * upscale_factor)), dtype=np.uint8)
+        upscaled_data = np.zeros((3, int(dataset.height * upscale_factor), int(dataset.width * upscale_factor)), dtype=np.uint8)
 
         # scale image transform
         upscaled_transform = dataset.transform * dataset.transform.scale(
@@ -92,9 +93,15 @@ if __name__ == "__main__":
     num_tiles_h = h // tile_h
     num_tiles_w = w // tile_w
 
+    total_tiles = num_tiles_h * num_tiles_w
+
+    print(f"Processing {total_tiles} tiles...")
+
     # tile the model_input_image and pass each tile to the model
     for i in range(num_tiles_h):
         for j in range(num_tiles_w):
+            print(f"Processing tile {i * num_tiles_w + j + 1} of {total_tiles}...")
+
             tile = model_input_image[:, i * tile_h : (i + 1) * tile_h, j * tile_w : (j + 1) * tile_w, :]  # (num_samples, tile_h, tile_w, 3)
             
             input_tensor = prepare_tensor(tile, device)
@@ -110,8 +117,13 @@ if __name__ == "__main__":
                 j * tile_w * upscale_factor : (j + 1) * tile_w * upscale_factor,
             ] = output
     
+    rand_inds_suffix = "_".join([str(i) for i in indices])
+    out_path = save_path / f"upscaled_{rand_inds_suffix}.tif"
+
+    print(f"Saving upscaled image to {out_path}...")
+
     with rasterio.open(
-        "upscaled.tif",
+        out_path,
         "w",
         driver="GTiff",
         width=upscaled_data.shape[2],
